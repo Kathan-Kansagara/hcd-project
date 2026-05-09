@@ -44,7 +44,7 @@ FROM node:22-alpine AS production
 # Install pnpm and dumb-init
 RUN corepack enable && \
     corepack prepare pnpm@10.19.0 --activate && \
-    apk add --no-cache dumb-init curl
+    apk add --no-cache dumb-init curl openssl libc6-compat
 
 WORKDIR /app
 
