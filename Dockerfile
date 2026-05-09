@@ -61,7 +61,13 @@ COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/packages/shared/src ./packages/shared/src
 COPY --from=build /app/packages/validators/src ./packages/validators/src
 COPY --from=build /app/packages/database/src ./packages/database/src
-COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+
+# Robustly copy Prisma client (check root and package node_modules)
+RUN if [ -d "/app/node_modules/.prisma" ]; then \
+        mkdir -p node_modules && cp -R /app/node_modules/.prisma node_modules/; \
+    elif [ -d "/app/packages/database/node_modules/.prisma" ]; then \
+        mkdir -p node_modules && cp -R /app/packages/database/node_modules/.prisma node_modules/; \
+    fi
 
 # Create uploads directory
 RUN mkdir -p /app/uploads && chown -R node:node /app/uploads
