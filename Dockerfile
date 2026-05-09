@@ -64,8 +64,11 @@ COPY --from=build /app/packages/shared/src ./packages/shared/src
 COPY --from=build /app/packages/validators/src ./packages/validators/src
 COPY --from=build /app/packages/database/src ./packages/database/src
 
-# Copy Prisma client from the dedicated build folder
-COPY --from=build /app/prisma-client/.prisma ./node_modules/.prisma
+# Copy schema for generation in production stage
+COPY --from=build /app/packages/database/prisma ./packages/database/prisma
+
+# Generate Prisma client in production (ensures it matches the OS)
+RUN cd packages/database && PRISMA_CLIENT_ENGINE_TYPE='binary' pnpm exec prisma generate
 
 # Create uploads directory
 RUN mkdir -p /app/uploads && chown -R node:node /app/uploads
