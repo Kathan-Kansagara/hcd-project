@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+
+    <!-- Primary Meta Tags -->
+    <title>Zenon Bio Science</title>
+    <meta name="title" content="Zenon Bio Science - Trial Management" />
+    <meta name="description" content="Crop trial management system for agricultural research" />
+
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#007c7d" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0D4A47" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="mask-icon" href="/masked-icon.svg" color="#007c7d" />
+
+    <!-- Android Chrome -->
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- iOS Safari - Add to Home Screen -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Zenon" />
+
+    <!-- iOS splash screens -->
+    <!-- iPhone (640x1136) -->
+    <link rel="apple-touch-startup-image" href="/apple-touch-icon.png" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)" />
+
+    <!-- Prevent telephone number detection on iOS -->
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- Windows / Microsoft -->
+    <meta name="msapplication-TileColor" content="#007c7d" />
+    <meta name="msapplication-tap-highlight" content="no" />
+
+    <!-- Handle iOS notch / safe areas -->
+    <style>
+      /* Safe area insets for notched devices */
+      :root {
+        --sat: env(safe-area-inset-top);
+        --sar: env(safe-area-inset-right);
+        --sab: env(safe-area-inset-bottom);
+        --sal: env(safe-area-inset-left);
+      }
+      /* Prevent pull-to-refresh in standalone mode */
+      html {
+        overscroll-behavior-y: contain;
+      }
+      body {
+        /* Ensure body extends behind status bar on iOS */
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

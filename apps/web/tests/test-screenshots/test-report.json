@@ -1,0 +1,16 @@
+{
+  "login": {
+    "loaded": true,
+    "errors": [
+      "The script has an unsupported MIME type ('text/html')."
+    ],
+    "notes": "Login form visible"
+  },
+  "login-success": {
+    "loaded": true,
+    "errors": [
+      "The script has an unsupported MIME type ('text/html')."
+    ],
+    "notes": "Redirected to dashboard"
+  }
+}

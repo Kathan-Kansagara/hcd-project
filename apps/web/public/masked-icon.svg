@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" fill="#C5E5E0" rx="15"/>
+  <defs>
+    <mask id="stripes">
+      <rect width="100" height="100" fill="white"/>
+      <rect x="0" y="35" width="100" height="4" fill="black"/>
+      <rect x="0" y="50" width="100" height="4" fill="black"/>
+      <rect x="0" y="65" width="100" height="4" fill="black"/>
+    </mask>
+  </defs>
+  <text x="50" y="75" font-family="Arial, sans-serif" font-size="65" font-weight="900" fill="#0D4A47" text-anchor="middle" mask="url(#stripes)">Z</text>
+</svg>

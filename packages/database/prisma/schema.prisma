@@ -1,0 +1,872 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis, uuidOssp(map: "uuid-ossp")]
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum Role {
+  ADMIN
+  SUBADMIN
+}
+
+enum TrialStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+enum AppType {
+  DRIP
+  IRRIGATION
+  SPRAY
+}
+
+enum PhotoStage {
+  BEFORE_UNTREATED
+  AFTER_TREATED
+}
+
+enum BatchUnit {
+  LITER
+  KG
+  PIECE
+}
+
+enum POStatus {
+  PENDING
+  RECEIVED
+  CANCELLED
+}
+
+enum SOStatus {
+  PENDING
+  DELIVERED
+  INVOICED
+  PAID
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+  CREDIT_CARD
+  UPI
+  OTHER
+}
+
+enum MovementType {
+  PURCHASE
+  SALE
+  ADJUSTMENT
+}
+
+// ============================================================================
+// MODELS
+// ============================================================================
+
+model Location {
+  id       String  @id @default(uuid()) @db.Uuid
+  village  String?
+  city     String?
+  taluka   String?
+  district String?
+  state    String?
+  pincode  String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  farmers   Farmer[]   @relation
+  trials    Trial[]    @relation
+  customers Customer[] @relation
+  suppliers Supplier[] @relation
+
+  @@index([village])
+  @@index([city])
+  @@index([district])
+  @@index([state])
+  @@index([pincode])
+  @@map("locations")
+}
+
+model User {
+  id            String   @id @default(uuid()) @db.Uuid
+  email         String   @unique
+  username      String?  @unique
+  password_hash String
+  name          String
+  role          Role     @default(SUBADMIN)
+  permissions   Json?    @default("[]")
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  // Relations - Created records
+  created_trials       Trial[]       @relation("TrialCreatedBy")
+  created_applications Application[] @relation("ApplicationCreatedBy")
+  created_photos       Photo[]       @relation("PhotoCreatedBy")
+  created_farmers      Farmer[]      @relation("FarmerCreatedBy")
+  created_products     Product[]     @relation("ProductCreatedBy")
+  created_batches      Batch[]       @relation("BatchCreatedBy")
+
+  // Relations - Updated records
+  updated_trials       Trial[]       @relation("TrialUpdatedBy")
+  updated_applications Application[] @relation("ApplicationUpdatedBy")
+  updated_farmers      Farmer[]      @relation("FarmerUpdatedBy")
+  updated_products     Product[]     @relation("ProductUpdatedBy")
+  updated_batches      Batch[]       @relation("BatchUpdatedBy")
+
+  // Raw Material relations
+  created_raw_materials         RawMaterial[]            @relation("RawMaterialCreatedBy")
+  updated_raw_materials         RawMaterial[]            @relation("RawMaterialUpdatedBy")
+  created_raw_material_batches  RawMaterialBatch[]       @relation("RMBatchCreatedBy")
+  updated_raw_material_batches  RawMaterialBatch[]       @relation("RMBatchUpdatedBy")
+  created_bom_items             BillOfMaterialItem[]     @relation("BOMCreatedBy")
+  updated_bom_items             BillOfMaterialItem[]     @relation("BOMUpdatedBy")
+  created_rm_consumptions       RawMaterialConsumption[] @relation("ConsumptionCreatedBy")
+
+  // Inventory Management relations
+  created_customers         Customer[]         @relation("CustomerCreatedBy")
+  updated_customers         Customer[]         @relation("CustomerUpdatedBy")
+  created_suppliers         Supplier[]         @relation("SupplierCreatedBy")
+  updated_suppliers         Supplier[]         @relation("SupplierUpdatedBy")
+  created_purchase_orders   PurchaseOrder[]    @relation("PurchaseOrderCreatedBy")
+  updated_purchase_orders   PurchaseOrder[]    @relation("PurchaseOrderUpdatedBy")
+  created_sales_orders      SalesOrder[]       @relation("SalesOrderCreatedBy")
+  updated_sales_orders      SalesOrder[]       @relation("SalesOrderUpdatedBy")
+  created_delivery_notes    DeliveryNote[]     @relation("DeliveryNoteCreatedBy")
+  updated_delivery_notes    DeliveryNote[]     @relation("DeliveryNoteUpdatedBy")
+  created_invoices          Invoice[]          @relation("InvoiceCreatedBy")
+  updated_invoices          Invoice[]          @relation("InvoiceUpdatedBy")
+  created_payments          Payment[]          @relation("PaymentCreatedBy")
+  updated_payments          Payment[]          @relation("PaymentUpdatedBy")
+  created_stock_movements   StockMovement[]    @relation("StockMovementCreatedBy")
+
+  @@map("users")
+}
+
+model Farmer {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  location_id String?   @db.Uuid
+  contact     String?
+  is_archived Boolean   @default(false)
+  archived_at DateTime?
+  created_by  String    @db.Uuid
+  created_at  DateTime  @default(now())
+  updated_by  String?   @db.Uuid
+  updated_at  DateTime  @updatedAt
+
+  // Relations
+  location Location? @relation(fields: [location_id], references: [id])
+  trials   Trial[]
+  creator  User      @relation("FarmerCreatedBy", fields: [created_by], references: [id])
+  updater  User?     @relation("FarmerUpdatedBy", fields: [updated_by], references: [id])
+
+  @@index([location_id])
+  @@index([is_archived])
+  @@index([created_by])
+  @@map("farmers")
+}
+
+model Product {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  category    String?
+  created_by  String   @db.Uuid
+  created_at  DateTime @default(now())
+  updated_by  String?  @db.Uuid
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  trials    Trial[]              @relation
+  batches   Batch[]              @relation
+  bom_items BillOfMaterialItem[] @relation
+  creator   User                 @relation("ProductCreatedBy", fields: [created_by], references: [id])
+  updater   User?                @relation("ProductUpdatedBy", fields: [updated_by], references: [id])
+
+  @@index([created_by])
+  @@map("products")
+}
+
+model Batch {
+  id                 String    @id @default(uuid()) @db.Uuid
+  product_id         String    @db.Uuid
+  batch_number       String    @unique
+  manufacturing_date DateTime
+  expiry_date        DateTime
+  quantity_produced  Float
+  quantity_remaining Float
+  unit               BatchUnit
+  storage_location   String?
+  notes              String?   @db.Text
+  is_active          Boolean   @default(true)
+  created_by         String    @db.Uuid
+  created_at         DateTime  @default(now())
+  updated_by         String?   @db.Uuid
+  updated_at         DateTime  @updatedAt
+
+  // Relations
+  product         Product                  @relation(fields: [product_id], references: [id])
+  creator         User                     @relation("BatchCreatedBy", fields: [created_by], references: [id])
+  updater         User?                    @relation("BatchUpdatedBy", fields: [updated_by], references: [id])
+  applications    Application[]            @relation
+  rm_consumptions RawMaterialConsumption[] @relation
+
+  @@index([product_id])
+  @@index([batch_number])
+  @@index([is_active])
+  @@index([expiry_date])
+  @@index([created_by])
+  @@map("batches")
+}
+
+model Trial {
+  id                  String      @id @default(uuid()) @db.Uuid
+  farmer_id           String      @db.Uuid
+  product_id          String      @db.Uuid
+  location_id         String?     @db.Uuid
+  crop                String
+  season              String?
+  start_date          DateTime
+  status              TrialStatus @default(DRAFT)
+  gps_lat             Float?
+  gps_lng             Float?
+  with_other_products String?     @db.Text
+  yield_value         Float?
+  yield_unit          String?
+
+  // Comments field - replaces Comment table
+  comments String? @db.Text
+
+  // Rating and success tracking
+  rating        Float?
+  is_successful Boolean?
+
+  created_by String   @db.Uuid
+  created_at DateTime @default(now())
+  updated_by String?  @db.Uuid
+  updated_at DateTime @updatedAt
+
+  // Relations
+  location     Location?     @relation(fields: [location_id], references: [id])
+  farmer       Farmer        @relation(fields: [farmer_id], references: [id], onDelete: Cascade)
+  product      Product       @relation(fields: [product_id], references: [id])
+  creator      User          @relation("TrialCreatedBy", fields: [created_by], references: [id])
+  updater      User?         @relation("TrialUpdatedBy", fields: [updated_by], references: [id])
+  applications Application[]
+
+  @@index([location_id])
+  @@index([farmer_id])
+  @@index([product_id])
+  @@index([status])
+  @@index([start_date])
+  @@index([created_by])
+  @@map("trials")
+}
+
+model Application {
+  id            String   @id @default(uuid()) @db.Uuid
+  trial_id      String   @db.Uuid
+  batch_id      String?  @db.Uuid
+  app_number    Int
+  app_type      AppType
+  app_date      DateTime
+  status        String   @default("pending")
+  quantity_used Float?
+
+  // Comments fields - replaces Comment table
+  before_comments String? @db.Text
+  after_comments  String? @db.Text
+
+  created_by String   @db.Uuid
+  created_at DateTime @default(now())
+  updated_by String?  @db.Uuid
+  updated_at DateTime @updatedAt
+
+  // Relations
+  trial   Trial   @relation(fields: [trial_id], references: [id], onDelete: Cascade)
+  batch   Batch?  @relation(fields: [batch_id], references: [id], onDelete: SetNull)
+  creator User    @relation("ApplicationCreatedBy", fields: [created_by], references: [id])
+  updater User?   @relation("ApplicationUpdatedBy", fields: [updated_by], references: [id])
+  photos  Photo[]
+
+  @@unique([trial_id, app_number])
+  @@index([trial_id])
+  @@index([batch_id])
+  @@index([created_by])
+  @@map("applications")
+}
+
+model Photo {
+  id             String     @id @default(uuid()) @db.Uuid
+  application_id String     @db.Uuid
+  stage          PhotoStage
+  file_path      String
+  file_url       String
+  file_size      Int
+  thumbnail_path String?
+  gps_lat        Float?
+  gps_lng        Float?
+  exif_timestamp DateTime?
+  created_by     String     @db.Uuid
+  created_at     DateTime   @default(now())
+
+  // Relations
+  application Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  creator     User        @relation("PhotoCreatedBy", fields: [created_by], references: [id])
+
+  @@index([application_id, stage])
+  @@index([created_by])
+  @@map("photos")
+}
+
+// ============================================================================
+// RAW MATERIAL TRACKING MODELS
+// ============================================================================
+
+model RawMaterial {
+  id              String  @id @default(uuid()) @db.Uuid
+  code            String  @unique // e.g., "RM-PKG-001"
+  name            String // e.g., "100ml HDPE Bottle"
+  description     String? // "White, cylindrical, tamper-evident"
+  category        String // "PACKAGING_PRIMARY", "ACTIVE_INGREDIENT", etc.
+  subcategory     String? // "BOTTLES", "NITROGEN_COMPOUNDS", etc.
+
+  // Flexible specifications field for ANY attributes
+  // Examples: {"size": "100ml", "material": "HDPE", "color": "White",
+  //            "cap_type": "Screw Cap", "torque_spec": "15-20 Nm"}
+  specifications Json?
+
+  unit            BatchUnit // LITER, KG, BAG, BOTTLE
+  min_stock_level Float?
+  reorder_point   Float?
+  supplier_name   String?
+
+  // Inventory Management extensions
+  gst_rate                  Decimal  @default(0) @db.Decimal(5, 2)
+  hsn_sac_code              String?
+  default_unit_price        Decimal? @db.Decimal(10, 2)
+  current_stock_quantity    Decimal  @default(0) @db.Decimal(15, 3)
+  weighted_average_cost     Decimal  @default(0) @db.Decimal(10, 2)
+  min_stock_level_inventory Decimal  @default(0) @db.Decimal(15, 3)
+
+  is_active  Boolean  @default(true)
+  created_by String   @db.Uuid
+  created_at DateTime @default(now())
+  updated_by String?  @db.Uuid
+  updated_at DateTime @updatedAt
+
+  creator          User                   @relation("RawMaterialCreatedBy", fields: [created_by], references: [id])
+  updater          User?                  @relation("RawMaterialUpdatedBy", fields: [updated_by], references: [id])
+  stock_batches    RawMaterialBatch[]     @relation
+  bom_items        BillOfMaterialItem[]   @relation
+  pricing_rules    PricingRule[]          @relation
+  sales_order_items SalesOrderItem[]      @relation
+  delivery_note_items DeliveryNoteItem[]  @relation
+  stock_movements  StockMovement[]        @relation
+  purchase_order_items PurchaseOrderItem[]    @relation
+
+  @@index([code])
+  @@index([category])
+  @@index([is_active])
+  @@index([created_by])
+  @@map("raw_materials")
+}
+
+model RawMaterialBatch {
+  id                 String    @id @default(uuid()) @db.Uuid
+  raw_material_id    String    @db.Uuid
+  batch_number       String    @unique
+  receipt_date       DateTime
+  expiry_date        DateTime?
+  quantity_received  Float
+  quantity_remaining Float
+  unit               BatchUnit
+  storage_location   String?
+  quality_parameters Json? // Store cap tightness, leak tests, etc.
+  quality_status     String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  is_active          Boolean   @default(true)
+  created_by         String    @db.Uuid
+  created_at         DateTime  @default(now())
+  updated_by         String?   @db.Uuid
+  updated_at         DateTime  @updatedAt
+
+  raw_material         RawMaterial              @relation(fields: [raw_material_id], references: [id])
+  creator              User                     @relation("RMBatchCreatedBy", fields: [created_by], references: [id])
+  updater              User?                    @relation("RMBatchUpdatedBy", fields: [updated_by], references: [id])
+  consumptions         RawMaterialConsumption[] @relation
+  purchase_order_items PurchaseOrderItem[]      @relation
+  sales_order_items    SalesOrderItem[]         @relation
+  delivery_note_items  DeliveryNoteItem[]       @relation
+  stock_movements      StockMovement[]          @relation
+
+  @@index([raw_material_id])
+  @@index([batch_number])
+  @@index([is_active])
+  @@index([quality_status])
+  @@index([expiry_date])
+  @@index([created_by])
+  @@map("raw_material_batches")
+}
+
+model BillOfMaterialItem {
+  id                String    @id @default(uuid()) @db.Uuid
+  product_id        String    @db.Uuid
+  raw_material_id   String    @db.Uuid
+  quantity_per_unit Float // Quantity needed per 1 unit of finished product
+  unit              BatchUnit
+  notes             String?
+  created_by        String    @db.Uuid
+  created_at        DateTime  @default(now())
+  updated_by        String?   @db.Uuid
+  updated_at        DateTime  @updatedAt
+
+  product      Product     @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  raw_material RawMaterial @relation(fields: [raw_material_id], references: [id])
+  creator      User        @relation("BOMCreatedBy", fields: [created_by], references: [id])
+  updater      User?       @relation("BOMUpdatedBy", fields: [updated_by], references: [id])
+
+  @@unique([product_id, raw_material_id])
+  @@index([product_id])
+  @@index([raw_material_id])
+  @@index([created_by])
+  @@map("bill_of_material_items")
+}
+
+model RawMaterialConsumption {
+  id                    String    @id @default(uuid()) @db.Uuid
+  finished_batch_id     String    @db.Uuid
+  raw_material_batch_id String    @db.Uuid
+  quantity_consumed     Float
+  unit                  BatchUnit
+  created_by            String    @db.Uuid
+  created_at            DateTime  @default(now())
+
+  finished_batch     Batch            @relation(fields: [finished_batch_id], references: [id], onDelete: Cascade)
+  raw_material_batch RawMaterialBatch @relation(fields: [raw_material_batch_id], references: [id])
+  creator            User             @relation("ConsumptionCreatedBy", fields: [created_by], references: [id])
+
+  @@index([finished_batch_id])
+  @@index([raw_material_batch_id])
+  @@index([created_by])
+  @@map("raw_material_consumptions")
+}
+
+// ============================================================================
+// INVENTORY MANAGEMENT MODELS
+// ============================================================================
+
+model Customer {
+  id              String   @id @default(uuid()) @db.Uuid
+  customer_type   String   @default("company") // "company" or "individual"
+  company_name    String
+  client_name     String?
+  contact         String
+  email           String?
+  address_line1   String?
+  address_line2   String?
+  location_id     String?  @db.Uuid
+  gstin           String?
+  place_of_supply String?
+  payment_terms   String   @default("Immediate")
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  created_by      String   @db.Uuid
+  updated_by      String?  @db.Uuid
+
+  location       Location?       @relation(fields: [location_id], references: [id])
+  creator        User            @relation("CustomerCreatedBy", fields: [created_by], references: [id])
+  updater        User?           @relation("CustomerUpdatedBy", fields: [updated_by], references: [id])
+  sales_orders   SalesOrder[]    @relation
+  invoices       Invoice[]       @relation
+  payments       Payment[]       @relation
+  pricing_rules  PricingRule[]   @relation
+  delivery_notes DeliveryNote[]  @relation
+
+  @@index([company_name])
+  @@index([customer_type])
+  @@index([location_id])
+  @@index([is_active])
+  @@index([created_by])
+  @@map("customers")
+}
+
+model Supplier {
+  id             String   @id @default(uuid()) @db.Uuid
+  company_name   String
+  contact_person String?
+  contact        String
+  email          String
+  address_line1  String
+  address_line2  String?
+  location_id    String?  @db.Uuid
+  gstin          String?
+  payment_terms  String
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  created_by     String   @db.Uuid
+  updated_by     String?  @db.Uuid
+
+  location        Location?       @relation(fields: [location_id], references: [id])
+  creator         User            @relation("SupplierCreatedBy", fields: [created_by], references: [id])
+  updater         User?           @relation("SupplierUpdatedBy", fields: [updated_by], references: [id])
+  purchase_orders PurchaseOrder[] @relation
+
+  @@index([company_name])
+  @@index([location_id])
+  @@index([is_active])
+  @@index([created_by])
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id                     String    @id @default(uuid()) @db.Uuid
+  po_number              String    @unique
+  supplier_id            String    @db.Uuid
+  order_date             DateTime
+  expected_delivery_date DateTime?
+  status                 POStatus  @default(PENDING)
+  payment_method         PaymentMethod?
+  notes                  String?   @db.Text
+  created_by             String    @db.Uuid
+  updated_by             String?   @db.Uuid
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
+
+  creator      User                 @relation("PurchaseOrderCreatedBy", fields: [created_by], references: [id])
+  updater      User?                @relation("PurchaseOrderUpdatedBy", fields: [updated_by], references: [id])
+  supplier_rel Supplier             @relation(fields: [supplier_id], references: [id])
+  items        PurchaseOrderItem[]  @relation
+
+  @@index([po_number])
+  @@index([supplier_id])
+  @@index([status])
+  @@index([order_date])
+  @@index([created_by])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id                String    @id @default(uuid()) @db.Uuid
+  purchase_order_id String    @db.Uuid
+  raw_material_id   String    @db.Uuid
+  quantity          Decimal   @db.Decimal(15, 3)
+  unit              String
+  unit_price        Decimal   @db.Decimal(10, 2)
+  total_price       Decimal   @db.Decimal(15, 2)
+  batch_id          String?   @db.Uuid
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  purchase_order PurchaseOrder    @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade)
+  raw_material   RawMaterial      @relation(fields: [raw_material_id], references: [id])
+  batch          RawMaterialBatch? @relation(fields: [batch_id], references: [id], onDelete: SetNull)
+
+  @@index([purchase_order_id])
+  @@index([raw_material_id])
+  @@index([batch_id])
+  @@map("purchase_order_items")
+}
+
+model SalesOrder {
+  id                     String     @id @default(uuid()) @db.Uuid
+  so_number              String     @unique
+  sale_type              String     @default("company") // "company" or "individual"
+  customer_id            String?    @db.Uuid
+  order_date             DateTime
+  expected_delivery_date DateTime?
+  status                 SOStatus   @default(PENDING)
+  payment_method         PaymentMethod?
+  discount_amount        Decimal    @default(0) @db.Decimal(10, 2)
+  discount_percentage    Decimal    @default(0) @db.Decimal(5, 2)
+  notes                  String?    @db.Text
+  created_by             String     @db.Uuid
+  updated_by             String?    @db.Uuid
+  created_at             DateTime   @default(now())
+  updated_at             DateTime   @updatedAt
+
+  creator        User             @relation("SalesOrderCreatedBy", fields: [created_by], references: [id])
+  updater        User?            @relation("SalesOrderUpdatedBy", fields: [updated_by], references: [id])
+  customer_rel   Customer?        @relation(fields: [customer_id], references: [id])
+  items          SalesOrderItem[] @relation
+  delivery_notes DeliveryNote[]   @relation
+  invoices       Invoice[]        @relation
+
+  @@index([so_number])
+  @@index([customer_id])
+  @@index([status])
+  @@index([order_date])
+  @@index([created_by])
+  @@index([sale_type])
+  @@map("sales_orders")
+}
+
+model SalesOrderItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  sales_order_id  String   @db.Uuid
+  raw_material_id String   @db.Uuid
+  batch_id        String   @db.Uuid
+  product_name    String
+  hsn_sac_code    String
+  quantity        Decimal  @db.Decimal(15, 3)
+  unit            String
+  unit_price      Decimal  @db.Decimal(10, 2)
+  gst_rate        Decimal  @db.Decimal(5, 2)
+  amount          Decimal  @db.Decimal(15, 2)
+  gst_amount      Decimal  @db.Decimal(15, 2)
+  total_amount    Decimal  @db.Decimal(15, 2)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  sales_order         SalesOrder         @relation(fields: [sales_order_id], references: [id], onDelete: Cascade)
+  raw_material        RawMaterial        @relation(fields: [raw_material_id], references: [id])
+  batch               RawMaterialBatch   @relation(fields: [batch_id], references: [id])
+  delivery_note_items DeliveryNoteItem[] @relation
+
+  @@index([sales_order_id])
+  @@index([raw_material_id])
+  @@index([batch_id])
+  @@map("sales_order_items")
+}
+
+model DeliveryNote {
+  id              String   @id @default(uuid()) @db.Uuid
+  dn_number       String   @unique
+  sales_order_id  String   @db.Uuid
+  customer_id     String   @db.Uuid
+  delivery_date   DateTime
+  notes           String?  @db.Text
+  created_by      String   @db.Uuid
+  updated_by      String?  @db.Uuid
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  creator      User               @relation("DeliveryNoteCreatedBy", fields: [created_by], references: [id])
+  updater      User?              @relation("DeliveryNoteUpdatedBy", fields: [updated_by], references: [id])
+  customer_rel Customer           @relation(fields: [customer_id], references: [id])
+  sales_order  SalesOrder         @relation(fields: [sales_order_id], references: [id])
+  items        DeliveryNoteItem[] @relation
+  invoices     Invoice[]          @relation
+
+  @@index([dn_number])
+  @@index([sales_order_id])
+  @@index([customer_id])
+  @@index([delivery_date])
+  @@index([created_by])
+  @@map("delivery_notes")
+}
+
+model DeliveryNoteItem {
+  id                  String   @id @default(uuid()) @db.Uuid
+  delivery_note_id    String   @db.Uuid
+  sales_order_item_id String   @db.Uuid
+  raw_material_id     String   @db.Uuid
+  batch_id            String   @db.Uuid
+  quantity_delivered  Decimal  @db.Decimal(15, 3)
+  unit                String
+  created_at          DateTime @default(now())
+
+  delivery_note    DeliveryNote     @relation(fields: [delivery_note_id], references: [id], onDelete: Cascade)
+  sales_order_item SalesOrderItem   @relation(fields: [sales_order_item_id], references: [id], onDelete: Cascade)
+  raw_material     RawMaterial      @relation(fields: [raw_material_id], references: [id])
+  batch            RawMaterialBatch @relation(fields: [batch_id], references: [id])
+
+  @@index([delivery_note_id])
+  @@index([sales_order_item_id])
+  @@index([raw_material_id])
+  @@index([batch_id])
+  @@map("delivery_note_items")
+}
+
+model Invoice {
+  id                String        @id @default(uuid()) @db.Uuid
+  invoice_number    String        @unique
+  sales_order_id    String        @db.Uuid
+  delivery_note_id  String?       @db.Uuid
+  customer_id       String        @db.Uuid
+  invoice_date      DateTime
+  due_date          DateTime
+  place_of_supply   String
+  sub_total         Decimal       @db.Decimal(15, 2)
+  discount_amount   Decimal       @default(0) @db.Decimal(10, 2)
+  taxable_amount    Decimal       @db.Decimal(15, 2)
+  cgst_amount       Decimal       @db.Decimal(15, 2)
+  sgst_amount       Decimal       @db.Decimal(15, 2)
+  igst_amount       Decimal       @default(0) @db.Decimal(15, 2)
+  total_gst         Decimal       @db.Decimal(15, 2)
+  round_off         Decimal       @default(0) @db.Decimal(10, 2)
+  grand_total       Decimal       @db.Decimal(15, 2)
+  amount_paid       Decimal       @default(0) @db.Decimal(15, 2)
+  amount_due        Decimal       @db.Decimal(15, 2)
+  status            InvoiceStatus @default(DRAFT)
+  pdf_path          String?
+  notes             String?       @db.Text
+  created_by        String        @db.Uuid
+  updated_by        String?       @db.Uuid
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+
+  creator       User           @relation("InvoiceCreatedBy", fields: [created_by], references: [id])
+  updater       User?          @relation("InvoiceUpdatedBy", fields: [updated_by], references: [id])
+  customer      Customer       @relation(fields: [customer_id], references: [id])
+  sales_order   SalesOrder     @relation(fields: [sales_order_id], references: [id])
+  delivery_note DeliveryNote?  @relation(fields: [delivery_note_id], references: [id])
+  items         InvoiceItem[]  @relation
+  payments      Payment[]      @relation
+
+  @@index([invoice_number])
+  @@index([customer_id])
+  @@index([sales_order_id])
+  @@index([status])
+  @@index([due_date])
+  @@index([created_by])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id           String   @id @default(uuid()) @db.Uuid
+  invoice_id   String   @db.Uuid
+  sr_no        Int
+  product_name String
+  hsn_sac_code String
+  quantity     Decimal  @db.Decimal(15, 3)
+  unit         String
+  rate         Decimal  @db.Decimal(10, 2)
+  gst_rate     Decimal  @db.Decimal(5, 2)
+  amount       Decimal  @db.Decimal(15, 2)
+  cgst_amount  Decimal  @db.Decimal(15, 2)
+  sgst_amount  Decimal  @db.Decimal(15, 2)
+  igst_amount  Decimal  @default(0) @db.Decimal(15, 2)
+  created_at   DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+
+  @@index([invoice_id])
+  @@map("invoice_items")
+}
+
+model Payment {
+  id               String        @id @default(uuid()) @db.Uuid
+  payment_number   String        @unique
+  invoice_id       String        @db.Uuid
+  customer_id      String        @db.Uuid
+  payment_date     DateTime
+  amount           Decimal       @db.Decimal(15, 2)
+  payment_method   PaymentMethod
+  reference_number String?
+  notes            String?       @db.Text
+  created_by       String        @db.Uuid
+  updated_by       String?       @db.Uuid
+  created_at       DateTime      @default(now())
+  updated_at       DateTime      @updatedAt
+
+  creator  User     @relation("PaymentCreatedBy", fields: [created_by], references: [id])
+  updater  User?    @relation("PaymentUpdatedBy", fields: [updated_by], references: [id])
+  customer Customer @relation(fields: [customer_id], references: [id])
+  invoice  Invoice  @relation(fields: [invoice_id], references: [id])
+
+  @@index([payment_number])
+  @@index([invoice_id])
+  @@index([customer_id])
+  @@index([payment_date])
+  @@index([created_by])
+  @@map("payments")
+}
+
+model PricingRule {
+  id              String    @id @default(uuid()) @db.Uuid
+  raw_material_id String    @db.Uuid
+  customer_id     String?   @db.Uuid
+  min_quantity    Decimal?  @db.Decimal(15, 3)
+  max_quantity    Decimal?  @db.Decimal(15, 3)
+  unit_price      Decimal   @db.Decimal(10, 2)
+  is_active       Boolean   @default(true)
+  effective_from  DateTime
+  effective_to    DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  raw_material RawMaterial @relation(fields: [raw_material_id], references: [id])
+  customer     Customer?   @relation(fields: [customer_id], references: [id])
+
+  @@index([raw_material_id])
+  @@index([customer_id])
+  @@index([is_active])
+  @@index([effective_from])
+  @@index([effective_to])
+  @@map("pricing_rules")
+}
+
+model StockMovement {
+  id                String       @id @default(uuid()) @db.Uuid
+  movement_type     MovementType
+  raw_material_id   String       @db.Uuid
+  batch_id          String       @db.Uuid
+  quantity          Decimal      @db.Decimal(15, 3)
+  unit              String
+  reference_type    String
+  reference_id      String
+  movement_date     DateTime
+  created_by        String       @db.Uuid
+  created_at        DateTime     @default(now())
+
+  creator      User             @relation("StockMovementCreatedBy", fields: [created_by], references: [id])
+  raw_material RawMaterial      @relation(fields: [raw_material_id], references: [id])
+  batch        RawMaterialBatch @relation(fields: [batch_id], references: [id])
+
+  @@index([movement_type])
+  @@index([raw_material_id])
+  @@index([batch_id])
+  @@index([movement_date])
+  @@index([created_by])
+  @@map("stock_movements")
+}
+
+model CompanySettings {
+  id                            String   @id @default(uuid()) @db.Uuid
+  company_name                  String
+  address_line1                 String
+  address_line2                 String?
+  city                          String
+  state                         String
+  pincode                       String
+  gstin                         String
+  fssai_number                  String?
+  bank_name                     String
+  bank_account_number           String
+  ifsc_code                     String
+  invoice_terms_and_conditions  String   @db.Text
+  invoice_prefix                String   @default("INV/")
+  logo_path                     String?
+  created_at                    DateTime @default(now())
+  updated_at                    DateTime @updatedAt
+
+  @@map("company_settings")
+}

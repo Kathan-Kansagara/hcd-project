@@ -1,0 +1,76 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build outputs
+dist
+build
+.next
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Deployment data
+postgres-data/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+apps/api/logs/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Testing
+coverage
+*.lcov
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
+# Database data
+postgres-data/
+backups/
+
+# Prisma
+prisma/migrations
+!prisma/migrations/.gitkeep
+packages/database/.env
+
+# Test artifacts and temporary files
+.playwright-mcp/
+test-assets/
+packages/database/apps/
+playwright-report/
+test-results/
+test-results.json
+
+# Claude and Turborepo artifacts
+.claude/
+.turbo/
+agent-os/
+
+# Temporary and backup files
+*.bak
+image.png
+package-lock.json
+TEST_REPORTS.md
+reset-rm-stock.ts
+clear-data.sql

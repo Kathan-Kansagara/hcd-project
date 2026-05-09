@@ -1,0 +1,616 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm, useFieldArray } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { format } from 'date-fns';
+import { ChevronLeft, ChevronRight, Save, Plus, Trash2 } from 'lucide-react';
+import Layout from '../components/layout/Layout';
+import PhotoUpload from '../components/trials/PhotoUpload';
+import { trialService } from '../services/trial.service';
+import { applicationService } from '../services/application.service';
+import { productService } from '../services/product.service';
+import { farmerService } from '../services/farmer.service';
+import type { Photo } from '../types';
+
+const trialSchema = z.object({
+  farmer_id: z.string().min(1, 'Farmer is required'),
+  product_id: z.string().min(1, 'Product is required'),
+  crop: z.string().min(1, 'Crop is required'),
+  village: z.string().min(1, 'Village is required'),
+  season: z.string().optional(),
+  start_date: z.string().min(1, 'Start date is required'),
+  gps_lat: z.number().optional(),
+  gps_lng: z.number().optional(),
+  with_other_products: z.string().optional(),
+  applications: z.array(
+    z.object({
+      app_number: z.number(),
+      app_type: z.enum(['DRIP', 'IRRIGATION', 'SPRAY']),
+      app_date: z.string().min(1, 'Application date is required'),
+      before_comments: z.string().optional(),
+      after_comments: z.string().optional(),
+    })
+  ),
+  yield_value: z.number().optional(),
+  yield_unit: z.string().optional(),
+  final_comments: z.string().optional(),
+});
+
+type TrialFormData = z.infer<typeof trialSchema>;
+
+export default function AddTrialPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [currentStep, setCurrentStep] = useState(1);
+  const [createdTrialId, setCreatedTrialId] = useState<string | null>(null);
+  const [applicationPhotos, setApplicationPhotos] = useState<Record<number, Photo[]>>({});
+
+  const { data: products } = useQuery({
+    queryKey: ['products'],
+    queryFn: productService.getAll,
+  });
+
+  const { data: farmers } = useQuery({
+    queryKey: ['farmers'],
+    queryFn: () => farmerService.getAll(),
+  });
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<TrialFormData>({
+    resolver: zodResolver(trialSchema),
+    defaultValues: {
+      start_date: format(new Date(), 'yyyy-MM-dd'),
+      applications: [
+        {
+          app_number: 1,
+          app_type: 'SPRAY',
+          app_date: format(new Date(), 'yyyy-MM-dd'),
+        },
+      ],
+    },
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: 'applications',
+  });
+
+  const createTrialMutation = useMutation({
+    mutationFn: trialService.create,
+    onSuccess: (trial) => {
+      setCreatedTrialId(trial.id);
+      setCurrentStep(2);
+    },
+  });
+
+  const createApplicationMutation = useMutation({
+    mutationFn: applicationService.create,
+  });
+
+  // const uploadPhotoMutation = useMutation({
+  //   mutationFn: ({
+  //     applicationId,
+  //     file,
+  //     stage,
+  //   }: {
+  //     applicationId: string;
+  //     file: File;
+  //     stage: 'BEFORE_UNTREATED' | 'AFTER_TREATED';
+  //   }) => applicationService.uploadPhoto(applicationId, file, stage),
+  // });
+
+  // const deletePhotoMutation = useMutation({
+  //   mutationFn: applicationService.deletePhoto,
+  // });
+
+  const onSubmitStep1 = async (data: TrialFormData) => {
+    const trialData = {
+      farmer_id: data.farmer_id,
+      product_id: data.product_id,
+      crop: data.crop,
+      village: data.village,
+      season: data.season,
+      start_date: data.start_date,
+      gps_lat: data.gps_lat,
+      gps_lng: data.gps_lng,
+      with_other_products: data.with_other_products,
+      status: 'DRAFT' as const,
+    };
+    createTrialMutation.mutate(trialData);
+  };
+
+  const onSubmitStep2 = async (data: TrialFormData) => {
+    if (!createdTrialId) return;
+
+    // Create applications
+    for (const app of data.applications) {
+      await createApplicationMutation.mutateAsync({
+        trial_id: createdTrialId,
+        ...app,
+      });
+    }
+
+    setCurrentStep(3);
+  };
+
+  const onSubmitStep3 = async (data: TrialFormData) => {
+    if (!createdTrialId) return;
+
+    // Update trial with yield and final comments
+    await trialService.update(createdTrialId, {
+      yield_value: data.yield_value,
+      yield_unit: data.yield_unit,
+      comments: data.final_comments,
+      status: 'IN_PROGRESS',
+    });
+
+    queryClient.invalidateQueries({ queryKey: ['trials'] });
+    navigate('/trials');
+  };
+
+  const handlePhotoUpload = async (
+    appIndex: number,
+    file: File,
+    stage: 'BEFORE_UNTREATED' | 'AFTER_TREATED'
+  ) => {
+    // For now, just store locally until application is created
+    // In step 2, we'll upload after creating applications
+    const mockPhoto: Photo = {
+      id: `temp-${Date.now()}`,
+      application_id: `temp-app-${appIndex}`,
+      stage,
+      file_url: URL.createObjectURL(file),
+      file_size: file.size,
+      created_by: '',
+      created_at: new Date().toISOString(),
+    };
+
+    setApplicationPhotos((prev) => ({
+      ...prev,
+      [appIndex]: [...(prev[appIndex] || []), mockPhoto],
+    }));
+  };
+
+  const handlePhotoDelete = (appIndex: number, photoId: string) => {
+    setApplicationPhotos((prev) => ({
+      ...prev,
+      [appIndex]: (prev[appIndex] || []).filter((p) => p.id !== photoId),
+    }));
+  };
+
+  // const formData = watch();
+
+  return (
+    <Layout>
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Add New Trial</h1>
+          <p className="mt-2 text-gray-600">
+            Create a new crop trial by following the steps below
+          </p>
+        </div>
+
+        {/* Progress Steps */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between">
+            {[
+              { num: 1, label: 'Basic Info' },
+              { num: 2, label: 'Applications' },
+              { num: 3, label: 'Outcome' },
+            ].map((step, index) => (
+              <div key={step.num} className="flex items-center flex-1">
+                <div className="flex items-center">
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
+                      currentStep >= step.num
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-600'
+                    }`}
+                  >
+                    {step.num}
+                  </div>
+                  <span
+                    className={`ml-2 text-sm font-medium ${
+                      currentStep >= step.num ? 'text-blue-600' : 'text-gray-500'
+                    }`}
+                  >
+                    {step.label}
+                  </span>
+                </div>
+                {index < 2 && (
+                  <div
+                    className={`flex-1 h-1 mx-4 ${
+                      currentStep > step.num ? 'bg-blue-600' : 'bg-gray-200'
+                    }`}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Form Content */}
+        <div className="bg-white shadow rounded-lg p-6">
+          {currentStep === 1 && (
+            <form onSubmit={handleSubmit(onSubmitStep1)} className="space-y-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                Step 1: Basic Information
+              </h2>
+
+              {/* Product Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Product <span className="text-red-500">*</span>
+                </label>
+                <select
+                  {...register('product_id')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a product</option>
+                  {(products?.data || []).map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name}
+                    </option>
+                  ))}
+                </select>
+                {errors.product_id && (
+                  <p className="text-red-500 text-sm mt-1">{errors.product_id.message}</p>
+                )}
+              </div>
+
+              {/* Farmer Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Farmer <span className="text-red-500">*</span>
+                </label>
+                <select
+                  {...register('farmer_id')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a farmer</option>
+                  {(farmers?.data || []).map((farmer: any) => (
+                    <option key={farmer.id} value={farmer.id}>
+                      {farmer.name} - {farmer.village}
+                    </option>
+                  ))}
+                </select>
+                {errors.farmer_id && (
+                  <p className="text-red-500 text-sm mt-1">{errors.farmer_id.message}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Crop */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Crop <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    {...register('crop')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., Tomato"
+                  />
+                  {errors.crop && (
+                    <p className="text-red-500 text-sm mt-1">{errors.crop.message}</p>
+                  )}
+                </div>
+
+                {/* Village */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Village <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    {...register('village')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Village name"
+                  />
+                  {errors.village && (
+                    <p className="text-red-500 text-sm mt-1">{errors.village.message}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Season */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Season</label>
+                  <input
+                    type="text"
+                    {...register('season')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., Kharif 2025"
+                  />
+                </div>
+
+                {/* Start Date */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Start Date <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    {...register('start_date')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {errors.start_date && (
+                    <p className="text-red-500 text-sm mt-1">{errors.start_date.message}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* GPS Coordinates */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    GPS Latitude
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    {...register('gps_lat', { valueAsNumber: true })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., 28.7041"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    GPS Longitude
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    {...register('gps_lng', { valueAsNumber: true })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., 77.1025"
+                  />
+                </div>
+              </div>
+
+              {/* Other Products */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Used with Other Products
+                </label>
+                <input
+                  type="text"
+                  {...register('with_other_products')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., Product X, Product Y"
+                />
+              </div>
+
+              {/* Navigation */}
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={createTrialMutation.isPending}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center disabled:opacity-50"
+                >
+                  {createTrialMutation.isPending ? 'Creating...' : 'Next'}
+                  <ChevronRight className="ml-2 h-4 w-4" />
+                </button>
+              </div>
+            </form>
+          )}
+
+          {currentStep === 2 && (
+            <form onSubmit={handleSubmit(onSubmitStep2)} className="space-y-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Step 2: Applications & Photos
+                </h2>
+                <button
+                  type="button"
+                  onClick={() =>
+                    append({
+                      app_number: fields.length + 1,
+                      app_type: 'SPRAY',
+                      app_date: format(new Date(), 'yyyy-MM-dd'),
+                    })
+                  }
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center text-sm"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Application
+                </button>
+              </div>
+
+              {fields.map((field, index) => (
+                <div key={field.id} className="border border-gray-200 rounded-lg p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-medium text-gray-900">
+                      Application #{index + 1}
+                    </h3>
+                    {fields.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => remove(index)}
+                        className="text-red-600 hover:text-red-700 flex items-center text-sm"
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Remove
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Application Type <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        {...register(`applications.${index}.app_type`)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="SPRAY">Spray</option>
+                        <option value="DRIP">Drip</option>
+                        <option value="IRRIGATION">Irrigation</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Application Date <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        {...register(`applications.${index}.app_date`)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      {errors.applications?.[index]?.app_date && (
+                        <p className="text-red-500 text-sm mt-1">
+                          {errors.applications[index]?.app_date?.message}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <PhotoUpload
+                      stage="BEFORE_UNTREATED"
+                      photos={applicationPhotos[index] || []}
+                      onUpload={(file, stage) => handlePhotoUpload(index, file, stage)}
+                      onDelete={(photoId) => handlePhotoDelete(index, photoId)}
+                      label="Before (Untreated) Photos"
+                    />
+
+                    <PhotoUpload
+                      stage="AFTER_TREATED"
+                      photos={applicationPhotos[index] || []}
+                      onUpload={(file, stage) => handlePhotoUpload(index, file, stage)}
+                      onDelete={(photoId) => handlePhotoDelete(index, photoId)}
+                      label="After (Treated) Photos"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Before Comments
+                      </label>
+                      <textarea
+                        {...register(`applications.${index}.before_comments`)}
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Observations before treatment..."
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        After Comments
+                      </label>
+                      <textarea
+                        {...register(`applications.${index}.after_comments`)}
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Observations after treatment..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Navigation */}
+              <div className="flex justify-between">
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep(1)}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 flex items-center"
+                >
+                  <ChevronLeft className="mr-2 h-4 w-4" />
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={createApplicationMutation.isPending}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center disabled:opacity-50"
+                >
+                  {createApplicationMutation.isPending ? 'Saving...' : 'Next'}
+                  <ChevronRight className="ml-2 h-4 w-4" />
+                </button>
+              </div>
+            </form>
+          )}
+
+          {currentStep === 3 && (
+            <form onSubmit={handleSubmit(onSubmitStep3)} className="space-y-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                Step 3: Outcome & Final Comments
+              </h2>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Yield Value
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    {...register('yield_value', { valueAsNumber: true })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., 1500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Yield Unit
+                  </label>
+                  <input
+                    type="text"
+                    {...register('yield_unit')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., kg, tons"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Final Comments
+                </label>
+                <textarea
+                  {...register('final_comments')}
+                  rows={5}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Overall observations and conclusions..."
+                />
+              </div>
+
+              {/* Navigation */}
+              <div className="flex justify-between">
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep(2)}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 flex items-center"
+                >
+                  <ChevronLeft className="mr-2 h-4 w-4" />
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
+                >
+                  <Save className="mr-2 h-4 w-4" />
+                  Complete Trial
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </Layout>
+  );
+}
