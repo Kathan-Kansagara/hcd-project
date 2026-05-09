@@ -31,7 +31,7 @@ COPY packages/validators ./packages/validators
 COPY packages/database ./packages/database
 
 # Generate Prisma client
-RUN cd packages/database && pnpm exec prisma generate
+RUN cd packages/database && PRISMA_CLIENT_ENGINE_TYPE='binary' pnpm exec prisma generate
 
 # Build API
 RUN pnpm --filter @zenon/api build
