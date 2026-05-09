@@ -31,7 +31,9 @@ COPY packages/validators ./packages/validators
 COPY packages/database ./packages/database
 
 # Generate Prisma client
-RUN cd packages/database && PRISMA_CLIENT_ENGINE_TYPE='binary' pnpm exec prisma generate
+RUN cd packages/database && PRISMA_CLIENT_ENGINE_TYPE='binary' pnpm exec prisma generate && \
+    mkdir -p /app/prisma-client && \
+    (cp -R /app/node_modules/.prisma /app/prisma-client/ || cp -R /app/packages/database/node_modules/.prisma /app/prisma-client/)
 
 # Build API
 RUN pnpm --filter @zenon/api build
@@ -62,12 +64,8 @@ COPY --from=build /app/packages/shared/src ./packages/shared/src
 COPY --from=build /app/packages/validators/src ./packages/validators/src
 COPY --from=build /app/packages/database/src ./packages/database/src
 
-# Robustly copy Prisma client (check root and package node_modules)
-RUN if [ -d "/app/node_modules/.prisma" ]; then \
-        mkdir -p node_modules && cp -R /app/node_modules/.prisma node_modules/; \
-    elif [ -d "/app/packages/database/node_modules/.prisma" ]; then \
-        mkdir -p node_modules && cp -R /app/packages/database/node_modules/.prisma node_modules/; \
-    fi
+# Copy Prisma client from the dedicated build folder
+COPY --from=build /app/prisma-client/.prisma ./node_modules/.prisma
 
 # Create uploads directory
 RUN mkdir -p /app/uploads && chown -R node:node /app/uploads
