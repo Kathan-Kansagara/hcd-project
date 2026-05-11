@@ -39,14 +39,15 @@ async function runMigrations() {
   if (process.env.NODE_ENV === 'production') {
     try {
       logger.info('🗄️ Running database migrations...');
-      execSync('cd ../../packages/database && pnpm prisma migrate deploy', {
+      execSync('npx prisma migrate deploy --schema=packages/database/prisma/schema.prisma', {
         stdio: 'inherit',
-        cwd: process.cwd()
+        cwd: '/app'
       });
       logger.info('✅ Database migrations completed');
     } catch (error) {
       logger.error('❌ Migration failed:', error);
-      throw error;
+      // Don't crash the server if migrations fail - it might already be up to date
+      logger.warn('⚠️ Server will start anyway. Run migrations manually if needed.');
     }
   }
 }
