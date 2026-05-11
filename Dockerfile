@@ -1,93 +1,96 @@
-# Multi-stage build for production API
+# =============================================================================
+# Zenon Management Portal - API Dockerfile (Production)
+# =============================================================================
+# Multi-stage build optimized for pnpm monorepo with Prisma
+# =============================================================================
+
+# ── Stage 1: Base ─────────────────────────────────────────────────────────────
 FROM node:22-alpine AS base
 
-# Install pnpm
 RUN corepack enable && corepack prepare pnpm@10.19.0 --activate
 
-# Set working directory
 WORKDIR /app
 
-# Copy workspace files
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
-COPY turbo.json ./
+# Copy workspace config files
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml turbo.json ./
 
-# Copy package files for dependency installation
+# Copy all package.json files for dependency resolution
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/validators/package.json ./packages/validators/
 COPY packages/database/package.json ./packages/database/
 
-# Install dependencies
-FROM base AS dependencies
+# ── Stage 2: Build ────────────────────────────────────────────────────────────
+FROM base AS build
+
+# Install ALL dependencies (need prisma CLI which is a devDependency)
 RUN pnpm install --frozen-lockfile
 
-# Build stage
-FROM dependencies AS build
-
-# Copy source code
+# Copy all source code
 COPY apps/api ./apps/api
 COPY packages/shared ./packages/shared
 COPY packages/validators ./packages/validators
 COPY packages/database ./packages/database
 
 # Generate Prisma client
-RUN cd packages/database && PRISMA_CLIENT_ENGINE_TYPE='binary' pnpm exec prisma generate && \
-    mkdir -p /app/prisma-client && \
-    (cp -R /app/node_modules/.prisma /app/prisma-client/ || cp -R /app/packages/database/node_modules/.prisma /app/prisma-client/)
+RUN cd packages/database && pnpm exec prisma generate
 
-# Build API
+# Build the API (TypeScript → JavaScript)
 RUN pnpm --filter @zenon/api build
 
-# Production stage
+# ── Stage 3: Production ──────────────────────────────────────────────────────
 FROM node:22-alpine AS production
 
-# Install pnpm and dumb-init
-RUN corepack enable && \
-    corepack prepare pnpm@10.19.0 --activate && \
-    apk add --no-cache dumb-init curl openssl libc6-compat
+# Install system dependencies required by Prisma and the app
+RUN apk add --no-cache dumb-init curl openssl libc6-compat
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@10.19.0 --activate
 
 WORKDIR /app
 
-# Copy package files
-COPY --from=base /app/pnpm-workspace.yaml /app/package.json /app/pnpm-lock.yaml ./
+# Copy workspace config
+COPY --from=base /app/pnpm-workspace.yaml /app/package.json /app/pnpm-lock.yaml /app/turbo.json ./
+
+# Copy all package.json files
 COPY --from=base /app/apps/api/package.json ./apps/api/
 COPY --from=base /app/packages/shared/package.json ./packages/shared/
 COPY --from=base /app/packages/validators/package.json ./packages/validators/
 COPY --from=base /app/packages/database/package.json ./packages/database/
 
-# Install production dependencies only
-RUN pnpm install --frozen-lockfile --prod
+# Install ALL dependencies (not --prod, because prisma generate needs the CLI)
+RUN pnpm install --frozen-lockfile
 
-# Copy built files
+# Copy built API output
 COPY --from=build /app/apps/api/dist ./apps/api/dist
+
+# Copy package source files (needed at runtime for imports)
 COPY --from=build /app/packages/shared/src ./packages/shared/src
 COPY --from=build /app/packages/validators/src ./packages/validators/src
 COPY --from=build /app/packages/database/src ./packages/database/src
 
-# Copy schema for generation in production stage
+# Copy Prisma schema and migrations
 COPY --from=build /app/packages/database/prisma ./packages/database/prisma
 
-# Generate Prisma client in production (ensures it matches the OS)
-RUN cd packages/database && PRISMA_CLIENT_ENGINE_TYPE='binary' pnpm exec prisma generate
+# Generate Prisma client INSIDE the production container
+# This guarantees it matches the Alpine Linux OS and is in the correct pnpm path
+RUN cd packages/database && pnpm exec prisma generate
 
-# Create uploads directory
-RUN mkdir -p /app/uploads && chown -R node:node /app/uploads
-
-# Create logs directory
-RUN mkdir -p /app/logs && chown -R node:node /app/logs
+# Create required directories
+RUN mkdir -p /app/uploads /app/logs && chown -R node:node /app/uploads /app/logs
 
 # Switch to non-root user
 USER node
 
-# Expose port
+# Expose API port
 EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
-# Use dumb-init to handle signals properly
+# Use dumb-init for proper signal handling
 ENTRYPOINT ["dumb-init", "--"]
 
-# Start the application
+# Start the API server
 CMD ["node", "apps/api/dist/index.js"]
